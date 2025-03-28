@@ -2,19 +2,17 @@ import streamlit as st
 import numpy as np
 import tensorflow as tf
 
-# 1. Load the saved TensorFlow model
+# 1. Define a custom MSE function if your model was compiled with 'mse'
 def custom_mse(y_true, y_pred):
     return tf.reduce_mean(tf.square(y_true - y_pred))
 
-# Load the saved model, supplying a custom_objects dict
-# so Keras can properly resolve 'mse' if necessary.
+# 2. Load the saved TensorFlow model
 model = tf.keras.models.load_model(
     "tf_bridge_model.h5",
-    custom_objects={"mse": custom_mse}  # remove if not needed
+    custom_objects={"mse": custom_mse}  # Include if your model uses 'mse'
 )
-model = load_saved_model()
 
-# 2. Define a helper function to encode the Material category
+# 3. Define a helper function to encode the Material category
 def encode_material(material):
     """
     Example of one-hot encoding for the 'Material' variable.
@@ -27,7 +25,7 @@ def encode_material(material):
         encoding[idx] = 1
     return encoding
 
-# 3. Build the Streamlit UI
+# 4. Build the Streamlit UI
 st.title("Bridge Condition Prediction")
 
 # Input fields
@@ -38,12 +36,11 @@ num_lanes = st.number_input("Num_Lanes (number of lanes on the bridge):", min_va
 material = st.selectbox("Material:", ["Steel", "Concrete", "Composite"])
 condition_rating = st.slider("Condition_Rating (1=Poor, 5=Excellent):", min_value=1, max_value=5, value=3)
 
-# Button to run prediction
+# 5. Button to run prediction
 if st.button("Predict"):
-    # 4. Prepare the input for the model
+    # Prepare the input for the model
     mat_encoding = encode_material(material)
-    # Example input shape: [Span_ft, Deck_Width_ft, Age_Years, Num_Lanes, Material_OneHot..., Condition_Rating]
-    # Make sure the order/shape here matches how your model was trained.
+    # Adjust shape/order to match how your model was trained
     input_data = np.array([
         span_ft,
         deck_width_ft,
@@ -51,15 +48,12 @@ if st.button("Predict"):
         num_lanes,
         *mat_encoding,
         condition_rating
-    ], dtype=float)
+    ], dtype=float).reshape(1, -1)
 
-    # Reshape to (1, -1) because we are predicting for a single example
-    input_data = input_data.reshape(1, -1)
-
-    # 5. Get prediction from the model
+    # 6. Get prediction from the model
     prediction = model.predict(input_data)
 
-    # 6. Display the prediction result
-    # Depending on your model, 'prediction' may be a single value or multiple values.
+    # 7. Display the prediction result
     st.subheader("Prediction Result")
     st.write("Predicted value:", float(prediction[0][0]))
+
