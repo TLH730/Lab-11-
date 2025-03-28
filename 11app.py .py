@@ -4,9 +4,14 @@ import pandas as pd
 import tensorflow as tf
 import pickle
 
-# Load the trained model and the preprocessing pipeline (scaler)
-custom_objects = {"mse": tf.keras.losses.mean_squared_error}
+# Define a custom MSE loss function for model loading
+def mse_loss(y_true, y_pred):
+    return tf.reduce_mean(tf.square(y_true - y_pred))
+
+# Use the custom MSE loss in the custom_objects dictionary
+custom_objects = {"mse": mse_loss}
 model = tf.keras.models.load_model("tf_bridge_model.h5", custom_objects=custom_objects)
+
 with open("preprocessing_pipeline.pkl", "rb") as f:
     scaler = pickle.load(f)
 
@@ -18,13 +23,12 @@ def preprocess_input(input_data):
     df = pd.DataFrame([input_data])
     
     # One-hot encode the 'Material' column.
-    # Using drop_first=True assumes the baseline is the first alphabetical category.
+    # Using drop_first=True to avoid multicollinearity.
     df = pd.concat([df, pd.get_dummies(df["Material"], prefix="Material", drop_first=True)], axis=1)
     df = df.drop(columns=["Material"])
     
     # Ensure all expected columns are present.
-    # Expected columns (order as in training): 
-    # Span_ft, Deck_Width_ft, Age_Years, Num_Lanes, Condition_Rating, Material_Concrete, Material_Steel
+    # Expected columns: Span_ft, Deck_Width_ft, Age_Years, Num_Lanes, Condition_Rating, Material_Concrete, Material_Steel
     expected_cols = ["Span_ft", "Deck_Width_ft", "Age_Years", "Num_Lanes", "Condition_Rating", "Material_Concrete", "Material_Steel"]
     for col in expected_cols:
         if col not in df.columns:
