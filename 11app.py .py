@@ -3,10 +3,14 @@ import numpy as np
 import tensorflow as tf
 
 # 1. Load the saved TensorFlow model
-@st.cache_resource
-def load_saved_model():
-    model = tf.keras.models.load_model("tf_bridge_model.h5")
-    return model
+def custom_mse(y_true, y_pred):
+    return tf.reduce_mean(tf.square(y_true - y_pred))
+
+# Load the saved model, supplying a custom_objects dict
+# so Keras can properly resolve 'mse' if necessary.
+model = tf.keras.models.load_model(
+    "tf_bridge_model.h5",
+    custom_objects={"mse": custom_mse}  # remove if not needed
 
 model = load_saved_model()
 
