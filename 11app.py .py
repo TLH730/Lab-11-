@@ -1,94 +1,61 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
 import tensorflow as tf
 
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
+# 1. Load the saved TensorFlow model
+@st.cache_resource
+def load_saved_model():
+    model = tf.keras.models.load_model("tf_bridge_model.h5")
+    return model
 
-################################################################################
-# 1. Define or load your preprocessing pipeline
-#    (In production, you'd typically load this from disk with joblib.load)
-################################################################################
-def preprocess_data(df):
-    # Example target column to drop (if your new data has it):
-    target_col = "Max_Load_Tons"
-    if target_col in df.columns:
-        df.drop(columns=[target_col], inplace=True)
+model = load_saved_model()
 
-    # Fill missing values
-    for col in df.columns:
-        if df[col].dtype == 'object':
-            df[col].fillna(df[col].mode()[0], inplace=True)
-        else:
-            df[col].fillna(df[col].mean(), inplace=True)
+# 2. Define a helper function to encode the Material category
+def encode_material(material):
+    """
+    Example of one-hot encoding for the 'Material' variable.
+    Adjust according to the categories your model was trained on.
+    """
+    materials = ["Steel", "Concrete", "Composite"]
+    encoding = [0] * len(materials)
+    if material in materials:
+        idx = materials.index(material)
+        encoding[idx] = 1
+    return encoding
 
-    # Identify categorical and numerical columns
-    cat_features = df.select_dtypes(include=['object']).columns.tolist()
-    num_features = df.select_dtypes(exclude=['object']).columns.tolist()
+# 3. Build the Streamlit UI
+st.title("Bridge Condition Prediction")
 
-    # Create pipelines
-    num_pipeline = Pipeline([
-        ('scaler', StandardScaler())
-    ])
-    cat_pipeline = Pipeline([
-        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
-    ])
-    preprocessor = ColumnTransformer([
-        ('num', num_pipeline, num_features),
-        ('cat', cat_pipeline, cat_features)
-    ])
+# Input fields
+span_ft = st.number_input("Span_ft (bridge span in feet):", min_value=0.0, value=100.0)
+deck_width_ft = st.number_input("Deck_Width_ft (deck width in feet):", min_value=0.0, value=20.0)
+age_years = st.number_input("Age_Years (age of the bridge):", min_value=0, value=30)
+num_lanes = st.number_input("Num_Lanes (number of lanes on the bridge):", min_value=1, value=2)
+material = st.selectbox("Material:", ["Steel", "Concrete", "Composite"])
+condition_rating = st.slider("Condition_Rating (1=Poor, 5=Excellent):", min_value=1, max_value=5, value=3)
 
-    # For a real production app, you'd fit on your training data once,
-    # then only call transform() on new data. Here we do fit_transform()
-    # just for demonstration.
-    X_processed = preprocessor.fit_transform(df)
-    return X_processed
+# Button to run prediction
+if st.button("Predict"):
+    # 4. Prepare the input for the model
+    mat_encoding = encode_material(material)
+    # Example input shape: [Span_ft, Deck_Width_ft, Age_Years, Num_Lanes, Material_OneHot..., Condition_Rating]
+    # Make sure the order/shape here matches how your model was trained.
+    input_data = np.array([
+        span_ft,
+        deck_width_ft,
+        age_years,
+        num_lanes,
+        *mat_encoding,
+        condition_rating
+    ], dtype=float)
 
-################################################################################
-# 2. Streamlit application
-################################################################################
-def main():
-    # Page title
-    st.title("Bridge Load Prediction App")
+    # Reshape to (1, -1) because we are predicting for a single example
+    input_data = input_data.reshape(1, -1)
 
-    st.write("""
-    Upload a data file with the same structure as your training data.  
-    The app will preprocess it and predict using **tf_bridge_model.h5**.
-    """)
+    # 5. Get prediction from the model
+    prediction = model.predict(input_data)
 
-    # File uploader
-    uploaded_file = st.file_uploader("Upload your Excel or CSV file", type=["xlsx", "csv"])
-
-    # If a file is uploaded, process it
-    if uploaded_file is not None:
-        # Load the file into a DataFrame
-        if uploaded_file.name.endswith(".xlsx"):
-            input_df = pd.read_excel(uploaded_file)
-        else:
-            input_df = pd.read_csv(uploaded_file)
-
-        st.subheader("Raw Input Data")
-        st.write(input_df.head())
-
-        # Preprocess the data
-        X_processed = preprocess_data(input_df)
-
-        # Load the trained model
-        try:
-            model = tf.keras.models.load_model("tf_bridge_model.h5")
-        except Exception as e:
-            st.error(f"Could not load the model. Check the model file path and name. Error:\n{e}")
-            return
-
-        # Make predictions
-        predictions = model.predict(X_processed)
-
-        st.subheader("Predictions")
-        st.write(predictions)
-    else:
-        st.info("Awaiting file upload...")
-
-if __name__ == "__main__":
-    main()
+    # 6. Display the prediction result
+    # Depending on your model, 'prediction' may be a single value or multiple values.
+    st.subheader("Prediction Result")
+    st.write("Predicted value:", float(prediction[0][0]))
