@@ -5,34 +5,33 @@ import tensorflow as tf
 import pickle
 
 # Load the trained model and the preprocessing pipeline (scaler)
-model = tf.keras.models.load_model("tf_bridge_model.h5")
+custom_objects = {"mse": tf.keras.losses.mean_squared_error}
+model = tf.keras.models.load_model("tf_bridge_model.h5", custom_objects=custom_objects)
 with open("preprocessing_pipeline.pkl", "rb") as f:
     scaler = pickle.load(f)
 
 def preprocess_input(input_data):
     """
     Preprocess the input data into the format and scale expected by the model.
-    Note: This function assumes that in training we used pd.get_dummies on 'Material'
-    with drop_first=True. For simplicity, we manually create dummy variables.
     """
     # Create a DataFrame from the input data
     df = pd.DataFrame([input_data])
     
     # One-hot encode the 'Material' column.
-    # Assume original materials: "Composite", "Concrete", "Steel".
-    # With drop_first=True, "Composite" is the baseline.
+    # Using drop_first=True assumes the baseline is the first alphabetical category.
     df = pd.concat([df, pd.get_dummies(df["Material"], prefix="Material", drop_first=True)], axis=1)
     df = df.drop(columns=["Material"])
     
-    # Ensure all expected columns are present. The training features order:
+    # Ensure all expected columns are present.
+    # Expected columns (order as in training): 
     # Span_ft, Deck_Width_ft, Age_Years, Num_Lanes, Condition_Rating, Material_Concrete, Material_Steel
     expected_cols = ["Span_ft", "Deck_Width_ft", "Age_Years", "Num_Lanes", "Condition_Rating", "Material_Concrete", "Material_Steel"]
     for col in expected_cols:
         if col not in df.columns:
-            df[col] = 0  # assign 0 if the dummy column is missing
+            df[col] = 0
     df = df[expected_cols]
     
-    # Scale the features
+    # Scale the features using the saved scaler
     X_scaled = scaler.transform(df)
     return X_scaled
 
