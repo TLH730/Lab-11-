@@ -1,78 +1,94 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
+import numpy as np
 import tensorflow as tf
-import pickle
-import os
 
-# Define a custom MSE loss function for model loading
-def mse_loss(y_true, y_pred):
-    return tf.reduce_mean(tf.square(y_true - y_pred))
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 
-# Paths to your saved model and preprocessing pipeline
-model_path = "tf_bridge_model.h5"
-pipeline_path = "preprocessing_pipeline.pkl"
+################################################################################
+# 1. Define or load your preprocessing pipeline
+#    (In production, you'd typically load this from disk with joblib.load)
+################################################################################
+def preprocess_data(df):
+    # Example target column to drop (if your new data has it):
+    target_col = "Max_Load_Tons"
+    if target_col in df.columns:
+        df.drop(columns=[target_col], inplace=True)
 
-# Check if model file exists
-if not os.path.exists(model_path):
-    st.error(f"Model file not found at '{model_path}'. Please ensure that the file is present in the directory.")
-else:
-    custom_objects = {"mse": mse_loss}
-    model = tf.keras.models.load_model(model_path, custom_objects=custom_objects)
+    # Fill missing values
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col].fillna(df[col].mode()[0], inplace=True)
+        else:
+            df[col].fillna(df[col].mean(), inplace=True)
 
-# Check if preprocessing pipeline file exists
-if not os.path.exists(pipeline_path):
-    st.error(f"Preprocessing pipeline file not found at '{pipeline_path}'. Please ensure that the file is present in the directory.")
-else:
-    with open(pipeline_path, "rb") as f:
-        scaler = pickle.load(f)
+    # Identify categorical and numerical columns
+    cat_features = df.select_dtypes(include=['object']).columns.tolist()
+    num_features = df.select_dtypes(exclude=['object']).columns.tolist()
 
-# Only proceed if both the model and scaler are loaded
-if "model" in locals() and "scaler" in locals():
+    # Create pipelines
+    num_pipeline = Pipeline([
+        ('scaler', StandardScaler())
+    ])
+    cat_pipeline = Pipeline([
+        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+    ])
+    preprocessor = ColumnTransformer([
+        ('num', num_pipeline, num_features),
+        ('cat', cat_pipeline, cat_features)
+    ])
 
-    def preprocess_input(input_data):
-        """
-        Preprocess the input data into the format and scale expected by the model.
-        """
-        # Create a DataFrame from the input data
-        df = pd.DataFrame([input_data])
-        # One-hot encode the 'Material' column.
-        df = pd.concat([df, pd.get_dummies(df["Material"], prefix="Material", drop_first=True)], axis=1)
-        df = df.drop(columns=["Material"])
-        # Ensure all expected columns are present.
-        expected_cols = [
-            "Span_ft", "Deck_Width_ft", "Age_Years", "Num_Lanes", 
-            "Condition_Rating", "Material_Concrete", "Material_Steel"
-        ]
-        for col in expected_cols:
-            if col not in df.columns:
-                df[col] = 0
-        df = df[expected_cols]
-        # Scale the features using the saved scaler
-        X_scaled = scaler.transform(df)
-        return X_scaled
+    # For a real production app, you'd fit on your training data once,
+    # then only call transform() on new data. Here we do fit_transform()
+    # just for demonstration.
+    X_processed = preprocessor.fit_transform(df)
+    return X_processed
 
-    st.title("Bridge Maximum Load Prediction")
-    st.write("Enter the details of the bridge:")
+################################################################################
+# 2. Streamlit application
+################################################################################
+def main():
+    # Page title
+    st.title("Bridge Load Prediction App")
 
-    span_ft = st.number_input("Span (ft)", min_value=0.0, value=250.0)
-    deck_width_ft = st.number_input("Deck Width (ft)", min_value=0.0, value=40.0)
-    age_years = st.number_input("Age (Years)", min_value=0.0, value=20.0)
-    num_lanes = st.number_input("Number of Lanes", min_value=1, value=4)
-    condition_rating = st.number_input("Condition Rating (1-5)", min_value=1, max_value=5, value=4)
-    material = st.selectbox("Material", options=["Composite", "Concrete", "Steel"])
+    st.write("""
+    Upload a data file with the same structure as your training data.  
+    The app will preprocess it and predict using **tf_bridge_model.h5**.
+    """)
 
-    input_data = {
-        "Span_ft": span_ft,
-        "Deck_Width_ft": deck_width_ft,
-        "Age_Years": age_years,
-        "Num_Lanes": num_lanes,
-        "Condition_Rating": condition_rating,
-        "Material": material
-    }
+    # File uploader
+    uploaded_file = st.file_uploader("Upload your Excel or CSV file", type=["xlsx", "csv"])
 
-    if st.button("Predict Maximum Load (Tons)"):
-        X_input = preprocess_input(input_data)
-        prediction = model.predict(X_input)
-        predicted_load = prediction[0, 0]
-        st.success(f"Predicted Maximum Load: {predicted_load:.2f} Tons")
+    # If a file is uploaded, process it
+    if uploaded_file is not None:
+        # Load the file into a DataFrame
+        if uploaded_file.name.endswith(".xlsx"):
+            input_df = pd.read_excel(uploaded_file)
+        else:
+            input_df = pd.read_csv(uploaded_file)
+
+        st.subheader("Raw Input Data")
+        st.write(input_df.head())
+
+        # Preprocess the data
+        X_processed = preprocess_data(input_df)
+
+        # Load the trained model
+        try:
+            model = tf.keras.models.load_model("tf_bridge_model.h5")
+        except Exception as e:
+            st.error(f"Could not load the model. Check the model file path and name. Error:\n{e}")
+            return
+
+        # Make predictions
+        predictions = model.predict(X_processed)
+
+        st.subheader("Predictions")
+        st.write(predictions)
+    else:
+        st.info("Awaiting file upload...")
+
+if __name__ == "__main__":
+    main()
