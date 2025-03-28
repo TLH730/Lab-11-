@@ -11,7 +11,7 @@ def custom_mse(y_true, y_pred):
 model = tf.keras.models.load_model(
     "tf_bridge_model.h5",
     custom_objects={"mse": custom_mse}  # remove if not needed
-
+)
 model = load_saved_model()
 
 # 2. Define a helper function to encode the Material category
